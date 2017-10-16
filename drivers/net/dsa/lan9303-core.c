@@ -797,6 +797,73 @@ static void lan9303_port_disable(struct dsa_switch *ds, int port,
 	}
 }
 
+static int lan9303_port_bridge_join(struct dsa_switch *ds, int port,
+				    struct net_device *br)
+{
+	struct lan9303 *chip = ds->priv;
+
+	dev_dbg(chip->dev, "%s(port %d)\n", __func__, port);
+	if (dsa_to_port(ds, 1)->bridge_dev == dsa_to_port(ds, 2)->bridge_dev) {
+		lan9303_bridge_ports(chip);
+		chip->is_bridged = true;  /* unleash stp_state_set() */
+	}
+
+	return 0;
+}
+
+static void lan9303_port_bridge_leave(struct dsa_switch *ds, int port,
+				      struct net_device *br)
+{
+	struct lan9303 *chip = ds->priv;
+
+	dev_dbg(chip->dev, "%s(port %d)\n", __func__, port);
+	if (chip->is_bridged) {
+		lan9303_separate_ports(chip);
+		chip->is_bridged = false;
+	}
+}
+
+static void lan9303_port_stp_state_set(struct dsa_switch *ds, int port,
+				       u8 state)
+{
+	int portmask, portstate;
+	struct lan9303 *chip = ds->priv;
+
+	dev_dbg(chip->dev, "%s(port %d, state %d)\n",
+		__func__, port, state);
+
+	switch (state) {
+	case BR_STATE_DISABLED:
+		portstate = LAN9303_SWE_PORT_STATE_DISABLED_PORT0;
+		break;
+	case BR_STATE_BLOCKING:
+	case BR_STATE_LISTENING:
+		portstate = LAN9303_SWE_PORT_STATE_BLOCKING_PORT0;
+		break;
+	case BR_STATE_LEARNING:
+		portstate = LAN9303_SWE_PORT_STATE_LEARNING_PORT0;
+		break;
+	case BR_STATE_FORWARDING:
+		portstate = LAN9303_SWE_PORT_STATE_FORWARDING_PORT0;
+		break;
+	default:
+		portstate = LAN9303_SWE_PORT_STATE_DISABLED_PORT0;
+		dev_err(chip->dev, "unknown stp state: port %d, state %d\n",
+			port, state);
+	}
+
+	portmask = 0x3 << (port * 2);
+	portstate <<= (port * 2);
+
+	chip->swe_port_state = (chip->swe_port_state & ~portmask) | portstate;
+
+	if (chip->is_bridged)
+		lan9303_write_switch_reg(chip, LAN9303_SWE_PORT_STATE,
+					 chip->swe_port_state);
+	/* else: touching SWE_PORT_STATE would break port separation */
+}
+
+>>>>>>> c8652c8... net: dsa: add dsa_to_port helper
 static const struct dsa_switch_ops lan9303_switch_ops = {
 	.get_tag_protocol = lan9303_get_tag_protocol,
 	.setup = lan9303_setup,
