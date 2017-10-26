@@ -817,11 +817,9 @@ static int b53_setup(struct dsa_switch *ds)
 		dev_err(ds->dev, "failed to apply configuration\n");
 
 	for (port = 0; port < dev->num_ports; port++) {
-		if (BIT(port) & ds->enabled_port_mask)
-			b53_enable_port(ds, port, NULL);
-		else if (dsa_is_cpu_port(ds, port))
-			b53_enable_cpu_port(dev);
-		else
+		if (dsa_is_cpu_port(ds, port))
+			b53_enable_cpu_port(dev, port);
+		else if (dsa_is_unused_port(ds, port))
 			b53_disable_port(ds, port, NULL);
 	}
 
