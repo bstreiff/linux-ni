@@ -3793,6 +3793,7 @@ static int macb_probe(struct platform_device *pdev)
 err_out_unregister_mdio:
 	phy_disconnect(dev->phydev);
 	mdiobus_unregister(bp->mii_bus);
+	of_node_put(bp->phy_node);
 	if (np && of_phy_is_fixed_link(np))
 		of_phy_deregister_fixed_link(np);
 	mdiobus_free(bp->mii_bus);
