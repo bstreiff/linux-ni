@@ -3918,11 +3918,15 @@ static int mv88e6xxx_probe(struct mdio_device *mdiodev)
 		err = mv88e6xxx_g1_atu_prob_irq_setup(chip);
 		if (err)
 			goto out_g2_irq;
+
+		err = mv88e6xxx_g1_vtu_prob_irq_setup(chip);
+		if (err)
+			goto out_g1_atu_prob_irq;
 	}
 
 	err = mv88e6xxx_mdios_register(chip, np);
 	if (err)
-		goto out_g1_atu_prob_irq;
+		goto out_g1_vtu_prob_irq;
 
 	err = mv88e6xxx_register_switch(chip);
 	if (err)
@@ -3932,6 +3936,8 @@ static int mv88e6xxx_probe(struct mdio_device *mdiodev)
 
 out_mdio:
 	mv88e6xxx_mdios_unregister(chip);
+out_g1_vtu_prob_irq:
+	mv88e6xxx_g1_vtu_prob_irq_free(chip);
 out_g1_atu_prob_irq:
 	mv88e6xxx_g1_atu_prob_irq_free(chip);
 out_g2_irq:
@@ -3957,6 +3963,7 @@ static void mv88e6xxx_remove(struct mdio_device *mdiodev)
 	mv88e6xxx_mdios_unregister(chip);
 
 	if (chip->irq > 0) {
+		mv88e6xxx_g1_vtu_prob_irq_free(chip);
 		mv88e6xxx_g1_atu_prob_irq_free(chip);
 		if (chip->info->g2_irqs > 0)
 			mv88e6xxx_g2_irq_free(chip);
