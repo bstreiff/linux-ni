@@ -218,6 +218,10 @@ int of_mdiobus_register(struct mii_bus *mdio, struct device_node *np)
 
 	/* Loop over the child nodes and register a phy_device for each phy */
 	for_each_available_child_of_node(np, child) {
+		/* fixed-link child nodes aren't really devices */
+		if (!of_node_cmp(child->name, "fixed-link"))
+			continue;
+
 		addr = of_mdio_parse_addr(&mdio->dev, child);
 		if (addr < 0) {
 			scanphys = true;
@@ -244,6 +248,10 @@ int of_mdiobus_register(struct mii_bus *mdio, struct device_node *np)
 	for_each_available_child_of_node(np, child) {
 		/* Skip PHYs with reg property set */
 		if (of_find_property(child, "reg", NULL))
+			continue;
+
+		/* fixed-link child nodes aren't really devices */
+		if (!of_node_cmp(child->name, "fixed-link"))
 			continue;
 
 		for (addr = 0; addr < PHY_MAX_ADDR; addr++) {
