@@ -976,6 +976,13 @@ static int sched_rt_runtime_exceeded(struct rt_rq *rt_rq)
 		if (likely(rt_b->rt_runtime)) {
 			rt_rq->rt_throttled = 1;
 			printk_deferred_once("sched: RT throttling activated\n");
+
+			/* zappppp */
+			if (sysctl_sched_rt_throttle_signal > 0) {
+				printk_deferred("sched: task %d activating RT throttling, sending signal %d\n",
+						current->pid, sysctl_sched_rt_throttle_signal);
+				force_sig(sysctl_sched_rt_throttle_signal);
+			}
 		} else {
 			/*
 			 * In case we did anyway, make it go away,

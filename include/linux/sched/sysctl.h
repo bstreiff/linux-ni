@@ -60,6 +60,7 @@ int sched_proc_update_handler(struct ctl_table *table, int write,
  */
 extern unsigned int sysctl_sched_rt_period;
 extern int sysctl_sched_rt_runtime;
+extern int sysctl_sched_rt_throttle_signal;
 
 extern unsigned int sysctl_sched_dl_period_max;
 extern unsigned int sysctl_sched_dl_period_min;

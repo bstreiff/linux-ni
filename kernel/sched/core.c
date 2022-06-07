@@ -85,6 +85,10 @@ __read_mostly int scheduler_running;
  */
 int sysctl_sched_rt_runtime = 950000;
 
+/*
+ * send a signal if throttling is engaged (0 = nothing, 11 = SIGSEGV, etc)
+ */
+int sysctl_sched_rt_throttle_signal = 0;
 
 /*
  * Serialization rules:
