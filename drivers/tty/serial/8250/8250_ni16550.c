@@ -18,10 +18,15 @@
  *  more details.
  */
 
-#include "8250.h"
-#include <linux/init.h>
-#include <linux/uaccess.h>
+#include <linux/acpi.h>
 #include <linux/device.h>
+#include <linux/io.h>
+#include <linux/init.h>
+#include <linux/module.h>
+#include <linux/of.h>
+#include <linux/property.h>
+
+#include "8250.h"
 
 #define NI16550_PCR_OFFSET 0x0F
 #define NI16550_PCR_RS422 0x00
@@ -58,6 +63,24 @@
 #define NI16550_PMR_MODE_RS232 0x00
 #define NI16550_PMR_MODE_RS485 0x10
 
+/*
+ * CPR - Clock Prescaler Register
+ *
+ * [7:3] - Integer part
+ * [2:0] - Fractional part (1/8 steps)
+ */
+#define NI16550_CPR_PRESCALE_1x125	0x9
+
+/* flags for ACPI match */
+#define NI_16BYTE_FIFO		0x0001
+#define NI_CAP_PMR		0x0002
+#define NI_CLK_33333333		0x0004
+#define NI_CPR_CLK_25000000	0x0008
+#define NI_CPR_CLK_33333333	0x0010
+
+struct ni16550_data {
+	int			line;
+};
 
 static int ni16550_enable_transceivers(struct uart_port *port)
 {
@@ -206,3 +229,150 @@ void ni16550_port_setup(struct uart_port *port)
 	 */
 	port->rs485.flags = SER_RS485_ENABLED | SER_RS485_RTS_ON_SEND;
 }
+
+static int ni16550_probe(struct platform_device *pdev)
+{
+	struct device *dev = &pdev->dev;
+	struct uart_8250_port uart = {};
+	struct ni16550_data *data;
+	struct resource *regs;
+	int ret = 0;
+	int irq;
+	int rs232_property = 0;
+	long flags;
+
+	regs = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	if (!regs) {
+		dev_err(dev, "no registers defined\n");
+		return -EINVAL;
+	}
+
+	irq = platform_get_irq(pdev, 0);
+	if (irq < 0)
+		return irq;
+
+	uart.port.membase = devm_ioremap(dev, regs->start,
+					 resource_size(regs));
+	if (!uart.port.membase)
+		return -ENOMEM;
+
+	data = devm_kzalloc(dev, sizeof(*data), GFP_KERNEL);
+	if (!data)
+		return -ENOMEM;
+
+	spin_lock_init(&uart.port.lock);
+	uart.port.irq		= irq;
+	uart.port.irqflags	= IRQF_SHARED;
+	uart.port.iotype	= UPIO_MEM;
+	uart.port.flags		= UPF_SHARE_IRQ | UPF_BOOT_AUTOCONF
+						| UPF_FIXED_PORT | UPF_IOREMAP
+						| UPF_FIXED_TYPE;
+	uart.port.mapbase	= regs->start;
+	uart.port.mapsize	= resource_size(regs);
+	uart.port.dev		= dev;
+
+	flags = (long)device_get_match_data(dev);
+
+	if (flags & NI_CLK_33333333)
+		uart.port.uartclk = 33333333;
+	if (flags & NI_CPR_CLK_25000000) {
+		/* Sets UART clock rate to 22.222 MHz with 1.125 prescale */
+		uart.port.uartclk = 22222222;
+		uart.mcr_force = UART_MCR_CLKSEL;
+		ni16550_config_prescaler(uart.port.iobase,
+					 NI16550_CPR_PRESCALE_1x125);
+	}
+	if (flags & NI_CPR_CLK_33333333) {
+		const char *transceiver;
+
+		/* Set UART clock rate to 29.629 MHz with 1.125 prescale */
+		uart.port.uartclk = 29629629;
+		uart.mcr_force = UART_MCR_CLKSEL;
+		ni16550_config_prescaler(uart.port.iobase,
+					 NI16550_CPR_PRESCALE_1x125);
+
+		/* TODO: why is this only in this case? */
+		/* we want this for the OF-enumerated case too */
+		if (device_property_read_string(dev, "transceiver",
+						&transceiver)) {
+			dev_warn(dev, "no transceiver property set\n");
+			ret = -EINVAL;
+		}
+
+		rs232_property = strncmp(transceiver, "RS-232", 6) == 0;
+	}
+
+	if (flags & NI_16BYTE_FIFO)
+		uart.port.type = PORT_NI16550_F16;
+	else
+		uart.port.type = PORT_NI16550_F128;
+
+	/*
+	 * NI UARTs may be connected to RS-485 or RS-232 transceivers,
+	 * depending on the ACPI 'transceiver' property and whether or
+	 * not the PMR is implemented. If the PMR is implemented and
+	 * the port is in RS-232 mode, register as a standard 8250 port
+	 * and print about it.
+	 */
+	if ((flags & NI_CAP_PMR) && is_rs232_mode(uart.port.iobase))
+		pr_info("NI 16550 at I/O 0x%x (irq = %d) is dual-mode capable and is in RS-232 mode\n",
+				 (unsigned int)uart.port.iobase,
+				 uart.port.irq);
+	else if (!rs232_property)
+		/*
+		 * Either the PMR is implemented and set to RS-485 mode
+		 * or it's not implemented and the 'transceiver' ACPI
+		 * property is 'RS-485';
+		 */
+		ni16550_port_setup(&uart.port);
+
+	platform_set_drvdata(pdev, data);
+
+	data->line = serial8250_register_8250_port(&uart);
+	if (data->line < 0)
+		return data->line;
+
+	return 0;
+}
+
+static int ni16550_remove(struct platform_device *pdev)
+{
+	struct ni16550_data *data = platform_get_drvdata(pdev);
+
+	serial8250_unregister_port(data->line);
+	return 0;
+}
+
+static const struct of_device_id ni16550_of_match[] = {
+	{ .compatible = "ni,ni16550-fifo16",
+		.data = (void *)NI_16BYTE_FIFO, },
+	{ .compatible = "ni,ni16550-fifo128",
+		.data = (void *)0 },
+	{ },
+};
+MODULE_DEVICE_TABLE(of, ni16550_of_match);
+
+static const struct acpi_device_id ni16550_acpi_match[] = {
+	{ "NIC7750",	NI_CLK_33333333 },
+	{ "NIC7772",	NI_CAP_PMR | NI_16BYTE_FIFO },
+	{ "NIC792B",	NI_CPR_CLK_25000000 },
+	{ "NIC7A69",	NI_CPR_CLK_33333333 },
+};
+MODULE_DEVICE_TABLE(acpi, ni16550_acpi_match);
+
+static struct platform_driver ni16550_driver = {
+	.driver = {
+		.name = "ni16550",
+		.of_match_table = ni16550_of_match,
+		.acpi_match_table = ACPI_PTR(ni16550_acpi_match),
+	},
+	.probe = ni16550_probe,
+	.remove = ni16550_remove,
+};
+
+module_platform_driver(ni16550_driver);
+
+MODULE_AUTHOR("Jaeden Amero <jaeden.amero@ni.com>");
+MODULE_AUTHOR("Karthik Manamcheri <karthik.manamcheri@ni.com>");
+MODULE_DESCRIPTION("NI 16550 Driver");
+MODULE_LICENSE("GPL v2");
