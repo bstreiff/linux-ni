@@ -79,7 +79,7 @@
 #define NI_CPR_CLK_33333333	0x0010
 
 struct ni16550_data {
-	int			line;
+	int line;
 };
 
 static int ni16550_enable_transceivers(struct uart_port *port)
@@ -239,37 +239,36 @@ static int ni16550_probe(struct platform_device *pdev)
 	int ret = 0;
 	int irq;
 	int rs232_property = 0;
+	const char *transceiver;
 	long flags;
-
-	regs = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	if (!regs) {
-		dev_err(dev, "no registers defined\n");
-		return -EINVAL;
-	}
-
-	irq = platform_get_irq(pdev, 0);
-	if (irq < 0)
-		return irq;
-
-	uart.port.membase = devm_ioremap(dev, regs->start,
-					 resource_size(regs));
-	if (!uart.port.membase)
-		return -ENOMEM;
 
 	data = devm_kzalloc(dev, sizeof(*data), GFP_KERNEL);
 	if (!data)
 		return -ENOMEM;
 
 	spin_lock_init(&uart.port.lock);
+
+	irq = platform_get_irq(pdev, 0);
+	if (irq < 0)
+		return irq;
+
+	if ((regs = platform_get_resource(pdev, IORESOURCE_IO, 0))) {
+		uart.port.iotype = UPIO_PORT;
+		uart.port.iobase = regs->start;
+	} else if ((regs = platform_get_resource(pdev, IORESOURCE_MEM, 0))) {
+		uart.port.iotype  = UPIO_MEM;
+		uart.port.mapbase = regs->start;
+		uart.port.flags   |= UPF_IOREMAP;
+	} else {
+		dev_err(dev, "no registers defined\n");
+		return -EINVAL;
+	}
+
+	uart.port.dev		= dev;
 	uart.port.irq		= irq;
 	uart.port.irqflags	= IRQF_SHARED;
-	uart.port.iotype	= UPIO_MEM;
-	uart.port.flags		= UPF_SHARE_IRQ | UPF_BOOT_AUTOCONF
-						| UPF_FIXED_PORT | UPF_IOREMAP
-						| UPF_FIXED_TYPE;
-	uart.port.mapbase	= regs->start;
-	uart.port.mapsize	= resource_size(regs);
-	uart.port.dev		= dev;
+	uart.port.flags		|= UPF_SHARE_IRQ | UPF_BOOT_AUTOCONF
+					| UPF_FIXED_PORT | UPF_FIXED_TYPE;
 
 	flags = (long)device_get_match_data(dev);
 
@@ -290,15 +289,20 @@ static int ni16550_probe(struct platform_device *pdev)
 		uart.mcr_force = UART_MCR_CLKSEL;
 		ni16550_config_prescaler(uart.port.iobase,
 					 NI16550_CPR_PRESCALE_1x125);
+	}
 
-		/* TODO: why is this only in this case? */
-		/* we want this for the OF-enumerated case too */
-		if (device_property_read_string(dev, "transceiver",
-						&transceiver)) {
-			dev_warn(dev, "no transceiver property set\n");
-			ret = -EINVAL;
-		}
+	/*
+	 * OF device-tree and NIC7A69 ACPI can declare clock-frequency,
+	 * but may be missing for other instantiations, so this is optional.
+	 * If present, override what we've defined staticly.
+	 */
+	device_property_read_u32(dev, "clock-frequency", &uart.port.uartclk);
 
+	/*
+	 * Similarly, "transceiver" might not be present. If it is not present,
+	 * then this is probably RS-485 (unless PMR is implemented).
+	 */
+	if (!device_property_read_string(dev, "transceiver", &transceiver)) {
 		rs232_property = strncmp(transceiver, "RS-232", 6) == 0;
 	}
 
@@ -326,11 +330,13 @@ static int ni16550_probe(struct platform_device *pdev)
 		 */
 		ni16550_port_setup(&uart.port);
 
-	platform_set_drvdata(pdev, data);
+	ret = serial8250_register_8250_port(&uart);
+	if (ret < 0)
+		return ret;
 
-	data->line = serial8250_register_8250_port(&uart);
-	if (data->line < 0)
-		return data->line;
+	data->line = ret;
+
+	platform_set_drvdata(pdev, data);
 
 	return 0;
 }
@@ -357,6 +363,7 @@ static const struct acpi_device_id ni16550_acpi_match[] = {
 	{ "NIC7772",	NI_CAP_PMR | NI_16BYTE_FIFO },
 	{ "NIC792B",	NI_CPR_CLK_25000000 },
 	{ "NIC7A69",	NI_CPR_CLK_33333333 },
+	{ },
 };
 MODULE_DEVICE_TABLE(acpi, ni16550_acpi_match);
 
