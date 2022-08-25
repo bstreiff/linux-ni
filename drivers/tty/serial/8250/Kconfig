@@ -537,7 +537,7 @@ config SERIAL_OF_PLATFORM
 	  flattened device tree format.
 
 config SERIAL_8250_NI16550
-	bool "NI 16550 UART support"
+	tristate "NI 16550 UART support"
 	depends on SERIAL_8250
 	help
 	  This driver supports the National Instruments (NI) 16550 UART port.
