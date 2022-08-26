@@ -71,12 +71,15 @@
  */
 #define NI16550_CPR_PRESCALE_1x125	0x9
 
-/* flags for ACPI match */
-#define NI_16BYTE_FIFO		0x0001
-#define NI_CAP_PMR		0x0002
-#define NI_CLK_33333333		0x0004
-#define NI_CPR_CLK_25000000	0x0008
-#define NI_CPR_CLK_33333333	0x0010
+/* flags for ni16550_device_info */
+#define NI_CAP_PMR		0x0001
+
+struct ni16550_device_info {
+	unsigned int uartclk;
+	uint8_t prescaler;
+	int port_type;
+	unsigned int flags;
+};
 
 struct ni16550_data {
 	int line;
@@ -235,12 +238,13 @@ static int ni16550_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct uart_8250_port uart = {};
 	struct ni16550_data *data;
+	const struct ni16550_device_info *info;
 	struct resource *regs;
 	int ret = 0;
 	int irq;
 	int rs232_property = 0;
+	unsigned prescaler;
 	const char *transceiver;
-	long flags;
 
 	data = devm_kzalloc(dev, sizeof(*data), GFP_KERNEL);
 	if (!data)
@@ -264,39 +268,36 @@ static int ni16550_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
+	info = device_get_match_data(dev);
+
 	uart.port.dev		= dev;
 	uart.port.irq		= irq;
 	uart.port.irqflags	= IRQF_SHARED;
 	uart.port.flags		|= UPF_SHARE_IRQ | UPF_BOOT_AUTOCONF
 					| UPF_FIXED_PORT | UPF_FIXED_TYPE;
-
-	flags = (long)device_get_match_data(dev);
-
-	if (flags & NI_CLK_33333333)
-		uart.port.uartclk = 33333333;
-	if (flags & NI_CPR_CLK_25000000) {
-		/* Sets UART clock rate to 22.222 MHz with 1.125 prescale */
-		uart.port.uartclk = 22222222;
-		uart.mcr_force = UART_MCR_CLKSEL;
-		ni16550_config_prescaler(uart.port.iobase,
-					 NI16550_CPR_PRESCALE_1x125);
-	}
-	if (flags & NI_CPR_CLK_33333333) {
-		const char *transceiver;
-
-		/* Set UART clock rate to 29.629 MHz with 1.125 prescale */
-		uart.port.uartclk = 29629629;
-		uart.mcr_force = UART_MCR_CLKSEL;
-		ni16550_config_prescaler(uart.port.iobase,
-					 NI16550_CPR_PRESCALE_1x125);
-	}
+	uart.port.type		= info->port_type;
 
 	/*
 	 * OF device-tree and NIC7A69 ACPI can declare clock-frequency,
 	 * but may be missing for other instantiations, so this is optional.
 	 * If present, override what we've defined staticly.
 	 */
+	if (info->uartclk)
+		uart.port.uartclk = info->uartclk;
 	device_property_read_u32(dev, "clock-frequency", &uart.port.uartclk);
+	if (!uart.port.uartclk) {
+		dev_err(dev, "unable to determine clock frequency!\n");
+		return -ENODEV;
+	}
+
+	if (info->prescaler)
+		prescaler = info->prescaler;
+	device_property_read_u32(dev, "clock-prescaler", &prescaler);
+
+	if (prescaler != 0) {
+		uart.mcr_force = UART_MCR_CLKSEL;
+		ni16550_config_prescaler(uart.port.iobase, (uint8_t)prescaler);
+	}
 
 	/*
 	 * Similarly, "transceiver" might not be present. If it is not present,
@@ -306,10 +307,6 @@ static int ni16550_probe(struct platform_device *pdev)
 		rs232_property = strncmp(transceiver, "RS-232", 6) == 0;
 	}
 
-	if (flags & NI_16BYTE_FIFO)
-		uart.port.type = PORT_NI16550_F16;
-	else
-		uart.port.type = PORT_NI16550_F128;
 
 	/*
 	 * NI UARTs may be connected to RS-485 or RS-232 transceivers,
@@ -318,7 +315,7 @@ static int ni16550_probe(struct platform_device *pdev)
 	 * the port is in RS-232 mode, register as a standard 8250 port
 	 * and print about it.
 	 */
-	if ((flags & NI_CAP_PMR) && is_rs232_mode(uart.port.iobase))
+	if ((info->flags & NI_CAP_PMR) && is_rs232_mode(uart.port.iobase))
 		pr_info("NI 16550 at I/O 0x%x (irq = %d) is dual-mode capable and is in RS-232 mode\n",
 				 (unsigned int)uart.port.iobase,
 				 uart.port.irq);
@@ -349,20 +346,59 @@ static int ni16550_remove(struct platform_device *pdev)
 	return 0;
 }
 
+/* NI 16550 (with 16-byte FIFOs) */
+static const struct ni16550_device_info ni16550_fifo16 = {
+	.port_type = PORT_NI16550_F16,
+};
+
+/* NI 16550 (with 128-byte FIFOs) */
+static const struct ni16550_device_info ni16550_fifo128 = {
+	.port_type = PORT_NI16550_F128,
+};
+
 static const struct of_device_id ni16550_of_match[] = {
 	{ .compatible = "ni,ni16550-fifo16",
-		.data = (void *)NI_16BYTE_FIFO, },
+		.data = &ni16550_fifo16, },
 	{ .compatible = "ni,ni16550-fifo128",
-		.data = (void *)0 },
+		.data = &ni16550_fifo128, },
 	{ },
 };
 MODULE_DEVICE_TABLE(of, ni16550_of_match);
 
+/* NI 16550 RS-485 Interface */
+static const struct ni16550_device_info nic7750 = {
+	.uartclk = 33333333,
+	.port_type = PORT_NI16550_F128,
+};
+
+/* NI CVS-145x and cRIO-903x RS-485 Interfaces */
+static const struct ni16550_device_info nic7772 = {
+	.uartclk = 1843200,
+	.port_type = PORT_NI16550_F16,
+	.flags = NI_CAP_PMR,
+};
+
+/* NI cRIO-904x RS-485 Interface */
+static const struct ni16550_device_info nic792b = {
+	/* Sets UART clock rate to 22.222 MHz with 1.125 prescale */
+	.uartclk = 25000000,
+	.prescaler = NI16550_CPR_PRESCALE_1x125,
+	.port_type = PORT_NI16550_F128,
+};
+
+/* NI sbRIO 96x8 RS-232/485 Interfaces */
+static const struct ni16550_device_info nic7a69 = {
+	/* Set UART clock rate to 29.629 MHz with 1.125 prescale */
+	.uartclk = 29629629,
+	.prescaler = NI16550_CPR_PRESCALE_1x125,
+	.port_type = PORT_NI16550_F128,
+};
+
 static const struct acpi_device_id ni16550_acpi_match[] = {
-	{ "NIC7750",	NI_CLK_33333333 },
-	{ "NIC7772",	NI_CAP_PMR | NI_16BYTE_FIFO },
-	{ "NIC792B",	NI_CPR_CLK_25000000 },
-	{ "NIC7A69",	NI_CPR_CLK_33333333 },
+	{ "NIC7750",	(kernel_ulong_t)&nic7750 },
+	{ "NIC7772",	(kernel_ulong_t)&nic7772 },
+	{ "NIC792B",	(kernel_ulong_t)&nic792b },
+	{ "NIC7A69",	(kernel_ulong_t)&nic7a69 },
 	{ },
 };
 MODULE_DEVICE_TABLE(acpi, ni16550_acpi_match);
