@@ -283,7 +283,13 @@ static int ni16550_probe(struct platform_device *pdev)
 	} else if ((regs = platform_get_resource(pdev, IORESOURCE_MEM, 0))) {
 		uart.port.iotype  = UPIO_MEM;
 		uart.port.mapbase = regs->start;
+		uart.port.mapsize = resource_size(regs);
 		uart.port.flags   |= UPF_IOREMAP;
+
+		uart.port.membase = devm_ioremap(dev, uart.port.mapbase,
+						 uart.port.mapsize);
+		if (!uart.port.membase)
+			return -ENOMEM;
 	} else {
 		dev_err(dev, "no registers defined\n");
 		return -EINVAL;
@@ -401,7 +407,7 @@ static const struct ni16550_device_info nic7750 = {
 	.port_type = PORT_NI16550_F128,
 };
 
-/* NI CVS-145x and cRIO-903x RS-485 Interfaces */
+/* NI CVS-145x RS-485 Interface */
 static const struct ni16550_device_info nic7772 = {
 	.uartclk = 1843200,
 	.port_type = PORT_NI16550_F16,
