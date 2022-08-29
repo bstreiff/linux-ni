@@ -171,7 +171,7 @@ static int ni16550_config_rs485(struct uart_port *port,
 	return 0;
 }
 
-bool is_rs232_mode(struct uart_8250_port *up)
+static bool is_rs232_mode(struct uart_8250_port *up)
 {
 	uint8_t pmr = serial_in(up, NI16550_PMR_OFFSET);
 
@@ -194,7 +194,8 @@ bool is_rs232_mode(struct uart_8250_port *up)
 		return ((pmr & NI16550_PMR_CAP_MASK) == NI16550_PMR_CAP_RS232);
 }
 
-void ni16550_config_prescaler(struct uart_8250_port *up, uint8_t prescaler)
+static void ni16550_config_prescaler(struct uart_8250_port *up,
+				     uint8_t prescaler)
 {
 	/* Page in the Enhanced Mode Registers
 	 * Sets EFR[4] for Enhanced Mode.
@@ -218,7 +219,7 @@ void ni16550_config_prescaler(struct uart_8250_port *up, uint8_t prescaler)
 	serial_out(up, UART_ICR, prescaler);
 }
 
-void ni16550_port_setup(struct uart_port *port)
+static void ni16550_port_setup(struct uart_port *port)
 {
 	port->rs485_config = &ni16550_config_rs485;
 	/* The hardware comes up by default in 2-wire auto mode and we
