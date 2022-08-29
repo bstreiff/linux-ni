@@ -218,20 +218,41 @@ void ni16550_config_prescaler(struct uart_8250_port *up, uint8_t prescaler)
 	serial_out(up, UART_ICR, prescaler);
 }
 
-static struct txvr_ops ni16550_txvr_ops = {
-	.enable_transceivers = ni16550_enable_transceivers,
-	.disable_transceivers = ni16550_disable_transceivers,
-};
-
 void ni16550_port_setup(struct uart_port *port)
 {
-	port->txvr_ops = &ni16550_txvr_ops;
 	port->rs485_config = &ni16550_config_rs485;
 	/* The hardware comes up by default in 2-wire auto mode and we
 	 * set the flags to represent that
 	 */
 	port->rs485.flags = SER_RS485_ENABLED | SER_RS485_RTS_ON_SEND;
 }
+
+static int ni16550_port_startup(struct uart_port *port)
+{
+	int ret;
+
+	ret = serial8250_do_startup(port);
+	if (!ret)
+		return ret;
+
+	if (port->rs485_config)
+		ret = ni16550_enable_transceivers(port);
+
+	return ret;
+}
+
+static void ni16550_port_shutdown(struct uart_port *port)
+{
+	if (port->rs485_config)
+		ni16550_disable_transceivers(port);
+
+	serial8250_do_shutdown(port);
+}
+
+static const struct uart_ops ni16550_uart_ops = {
+	.startup	= ni16550_port_startup,
+	.shutdown	= ni16550_port_shutdown,
+};
 
 static int ni16550_probe(struct platform_device *pdev)
 {
@@ -279,6 +300,7 @@ static int ni16550_probe(struct platform_device *pdev)
 	uart.port.flags		|= UPF_SHARE_IRQ | UPF_BOOT_AUTOCONF
 					| UPF_FIXED_PORT | UPF_FIXED_TYPE;
 	uart.port.type		= info->port_type;
+	uart.port.ops		= &ni16550_uart_ops;
 
 	/*
 	 * OF device-tree and NIC7A69 ACPI can declare clock-frequency,
@@ -326,13 +348,14 @@ static int ni16550_probe(struct platform_device *pdev)
 			pr_info("NI 16550 at MMIO 0x%llx (irq = %d) is dual-mode capable and is in RS-232 mode\n",
 				(unsigned long long)uart.port.mapbase,
 				uart.port.irq);
-	} else if (!rs232_property)
+	} else if (!rs232_property) {
 		/*
 		 * Either the PMR is implemented and set to RS-485 mode
 		 * or it's not implemented and the 'transceiver' ACPI
 		 * property is 'RS-485';
 		 */
 		ni16550_port_setup(&uart.port);
+	}
 
 	ret = serial8250_register_8250_port(&uart);
 	if (ret < 0)
