@@ -171,9 +171,9 @@ static int ni16550_config_rs485(struct uart_port *port,
 	return 0;
 }
 
-bool is_rs232_mode(unsigned long iobase)
+bool is_rs232_mode(struct uart_8250_port *up)
 {
-	uint8_t pmr = inb(iobase + NI16550_PMR_OFFSET);
+	uint8_t pmr = serial_in(up, NI16550_PMR_OFFSET);
 
 	/* If the PMR is not implemented, then by default NI UARTs are
 	 * connected to RS-485 transceivers
@@ -194,7 +194,7 @@ bool is_rs232_mode(unsigned long iobase)
 		return ((pmr & NI16550_PMR_CAP_MASK) == NI16550_PMR_CAP_RS232);
 }
 
-void ni16550_config_prescaler(unsigned long iobase, uint8_t prescaler)
+void ni16550_config_prescaler(struct uart_8250_port *up, uint8_t prescaler)
 {
 	/* Page in the Enhanced Mode Registers
 	 * Sets EFR[4] for Enhanced Mode.
@@ -202,20 +202,20 @@ void ni16550_config_prescaler(unsigned long iobase, uint8_t prescaler)
 	uint8_t lcr_value;
 	uint8_t efr_value;
 
-	lcr_value = inb(iobase + UART_LCR);
-	outb(UART_LCR_CONF_MODE_B, iobase + UART_LCR);
+	lcr_value = serial_in(up, UART_LCR);
+	serial_out(up, UART_LCR, UART_LCR_CONF_MODE_B);
 
-	efr_value = inb(iobase + UART_EFR);
+	efr_value = serial_in(up, UART_EFR);
 	efr_value |= UART_EFR_ECB;
 
-	outb(efr_value, iobase + UART_EFR);
+	serial_out(up, UART_EFR, efr_value);
 
 	/* Page out the Enhanced Mode Registers */
-	outb(lcr_value, iobase + UART_LCR);
+	serial_out(up, UART_LCR, lcr_value);
 
 	/* Set prescaler to CPR register. */
-	outb(UART_CPR, iobase + UART_SCR);
-	outb(prescaler, iobase + UART_ICR);
+	serial_out(up, UART_SCR, UART_CPR);
+	serial_out(up, UART_ICR, prescaler);
 }
 
 static struct txvr_ops ni16550_txvr_ops = {
@@ -268,6 +268,9 @@ static int ni16550_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
+	/* early setup so that serial_in()/serial_out() work */
+	serial8250_set_defaults(&uart);
+
 	info = device_get_match_data(dev);
 
 	uart.port.dev		= dev;
@@ -296,7 +299,7 @@ static int ni16550_probe(struct platform_device *pdev)
 
 	if (prescaler != 0) {
 		uart.mcr_force = UART_MCR_CLKSEL;
-		ni16550_config_prescaler(uart.port.iobase, (uint8_t)prescaler);
+		ni16550_config_prescaler(&uart, (uint8_t)prescaler);
 	}
 
 	/*
@@ -307,7 +310,6 @@ static int ni16550_probe(struct platform_device *pdev)
 		rs232_property = strncmp(transceiver, "RS-232", 6) == 0;
 	}
 
-
 	/*
 	 * NI UARTs may be connected to RS-485 or RS-232 transceivers,
 	 * depending on the ACPI 'transceiver' property and whether or
@@ -315,11 +317,16 @@ static int ni16550_probe(struct platform_device *pdev)
 	 * the port is in RS-232 mode, register as a standard 8250 port
 	 * and print about it.
 	 */
-	if ((info->flags & NI_CAP_PMR) && is_rs232_mode(uart.port.iobase))
-		pr_info("NI 16550 at I/O 0x%x (irq = %d) is dual-mode capable and is in RS-232 mode\n",
-				 (unsigned int)uart.port.iobase,
-				 uart.port.irq);
-	else if (!rs232_property)
+	if ((info->flags & NI_CAP_PMR) && is_rs232_mode(&uart)) {
+		if (uart.port.iotype == UPIO_PORT)
+			pr_info("NI 16550 at I/O 0x%x (irq = %d) is dual-mode capable and is in RS-232 mode\n",
+				(unsigned int)uart.port.iobase,
+				uart.port.irq);
+		else
+			pr_info("NI 16550 at MMIO 0x%llx (irq = %d) is dual-mode capable and is in RS-232 mode\n",
+				(unsigned long long)uart.port.mapbase,
+				uart.port.irq);
+	} else if (!rs232_property)
 		/*
 		 * Either the PMR is implemented and set to RS-485 mode
 		 * or it's not implemented and the 'transceiver' ACPI
