@@ -19,54 +19,33 @@
 
 #include "8250.h"
 
-#define NI16550_PCR_OFFSET 0x0F
-#define NI16550_PCR_RS422 0x00
-#define NI16550_PCR_ECHO_RS485 0x01
-#define NI16550_PCR_DTR_RS485 0x02
-#define NI16550_PCR_AUTO_RS485 0x03
-#define NI16550_PCR_WIRE_MODE_MASK 0x03
-#define NI16550_PCR_TXVR_ENABLE_BIT (1 << 3)
-#define NI16550_PCR_RS485_TERMINATION_BIT (1 << 6)
+/* TFS - TX FIFO Size */
+#define NI16550_TFS_OFFSET	0x0C
+/* RFS - RX FIFO Size */
+#define NI16550_RFS_OFFSET	0x0D
 
-#define NI16550_PMR_OFFSET 0x0E
-/*
- * PMR[1:0] - Port Capabilities
- *
- * 0 - Register not implemented/supported
- * 1 - RS-232 capable
- * 2 - RS-485 capable
- * 3 - RS-232/RS-485 dual-mode capable
- *
- */
-#define NI16550_PMR_CAP_MASK   0x03
-#define NI16550_PMR_NOT_IMPL   0x00
-#define NI16550_PMR_CAP_RS232  0x01
-#define NI16550_PMR_CAP_RS485  0x02
-#define NI16550_PMR_CAP_DUAL   0x03
-/*
- * PMR[4] - Interface Mode
- *
- * 0 - RS-232 mode
- * 1 - RS-485 mode
- *
- */
-#define NI16550_PMR_MODE_MASK  0x10
-#define NI16550_PMR_MODE_RS232 0x00
-#define NI16550_PMR_MODE_RS485 0x10
+/* PCR - Port Control Register */
+#define NI16550_PCR_OFFSET	0x0F
+#define NI16550_PCR_RS422			0x00
+#define NI16550_PCR_ECHO_RS485			0x01
+#define NI16550_PCR_DTR_RS485			0x02
+#define NI16550_PCR_AUTO_RS485			0x03
+#define NI16550_PCR_WIRE_MODE_MASK		0x03
+#define NI16550_PCR_TXVR_ENABLE_BIT		(1 << 3)
+#define NI16550_PCR_RS485_TERMINATION_BIT	(1 << 6)
 
-/*
- * TFS, RFS - TX, RX FIFO Sizes
- */
-#define NI16550_TFS_OFFSET     0x0C
-#define NI16550_RFS_OFFSET     0x0D
-
-/*
- * CPR - Clock Prescaler Register
- *
- * [7:3] - Integer part
- * [2:0] - Fractional part (1/8 steps)
- */
-#define NI16550_CPR_PRESCALE_1x125	0x9
+/* PMR - Port Mode Register */
+#define NI16550_PMR_OFFSET	0x0E
+/* PMR[1:0] - Port Capabilities */
+#define NI16550_PMR_CAP_MASK			0x03
+#define NI16550_PMR_NOT_IMPL			0x00 /* not implemented */
+#define NI16550_PMR_CAP_RS232			0x01 /* RS-232 capable */
+#define NI16550_PMR_CAP_RS485			0x02 /* RS-485 capable */
+#define NI16550_PMR_CAP_DUAL			0x03 /* dual-port */
+/* PMR[4] - Interface Mode */
+#define NI16550_PMR_MODE_MASK			0x10
+#define NI16550_PMR_MODE_RS232			0x00 /* currently 232 */
+#define NI16550_PMR_MODE_RS485			0x10 /* currently 485 */
 
 /* flags for ni16550_device_info */
 #define NI_CAP_PMR		0x0001
@@ -317,6 +296,22 @@ static int ni16550_probe(struct platform_device *pdev)
 	uart.port.ops		= &ni16550_uart_ops;
 
 	/*
+	 * Hardware instantiation of FIFO sizes are held in registers.
+	 */
+	txfifosz = serial_in(&uart, NI16550_TFS_OFFSET);
+	rxfifosz = serial_in(&uart, NI16550_RFS_OFFSET);
+
+	if (txfifosz == 128 && rxfifosz == 128)
+		uart.port.type = PORT_NI16550_F128;
+	else if (txfifosz == 16 && rxfifosz == 16)
+		uart.port.type = PORT_NI16550_F16;
+	else {
+		dev_err(dev, "unknown tx/rx fifo sizes (%d, %d)\n",
+			txfifosz, rxfifosz);
+		return -ENODEV;
+	}
+
+	/*
 	 * OF device-tree and NIC7A69 ACPI can declare clock-frequency,
 	 * but may be missing for other instantiations, so this is optional.
 	 * If present, override what we've defined staticly.
@@ -344,22 +339,6 @@ static int ni16550_probe(struct platform_device *pdev)
 	 */
 	if (!device_property_read_string(dev, "transceiver", &transceiver))
 		rs232_property = strncmp(transceiver, "RS-232", 6) == 0;
-
-	/*
-	 * Hardware instantiation of FIFO sizes are held in registers.
-	 */
-	txfifosz = serial_in(&uart, NI16550_TFS_OFFSET);
-	rxfifosz = serial_in(&uart, NI16550_RFS_OFFSET);
-
-	if (txfifosz == 128 && rxfifosz == 128)
-		uart.port.type = PORT_NI16550_F128;
-	else if (txfifosz == 16 && rxfifosz == 16)
-		uart.port.type = PORT_NI16550_F16;
-	else {
-		dev_err(dev, "unknown tx/rx fifo sizes (%d, %d)\n",
-			txfifosz, rxfifosz);
-		return -ENODEV;
-	}
 
 	/*
 	 * NI UARTs may be connected to RS-485 or RS-232 transceivers,
@@ -428,14 +407,14 @@ static const struct ni16550_device_info nic7772 = {
 static const struct ni16550_device_info nic792b = {
 	/* Sets UART clock rate to 22.222 MHz with 1.125 prescale */
 	.uartclk = 25000000,
-	.prescaler = NI16550_CPR_PRESCALE_1x125,
+	.prescaler = 0x09,
 };
 
 /* NI sbRIO 96x8 RS-232/485 Interfaces */
 static const struct ni16550_device_info nic7a69 = {
 	/* Set UART clock rate to 29.629 MHz with 1.125 prescale */
 	.uartclk = 29629629,
-	.prescaler = NI16550_CPR_PRESCALE_1x125,
+	.prescaler = 0x09,
 };
 
 static const struct acpi_device_id ni16550_acpi_match[] = {
