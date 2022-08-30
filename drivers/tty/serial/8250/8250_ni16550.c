@@ -55,6 +55,12 @@
 #define NI16550_PMR_MODE_RS485 0x10
 
 /*
+ * TFS, RFS - TX, RX FIFO Sizes
+ */
+#define NI16550_TFS_OFFSET     0x0C
+#define NI16550_RFS_OFFSET     0x0D
+
+/*
  * CPR - Clock Prescaler Register
  *
  * [7:3] - Integer part
@@ -68,7 +74,6 @@
 struct ni16550_device_info {
 	unsigned int uartclk;
 	uint8_t prescaler;
-	int port_type;
 	unsigned int flags;
 };
 
@@ -283,6 +288,7 @@ static int ni16550_probe(struct platform_device *pdev)
 	int rs232_property = 0;
 	unsigned int prescaler;
 	const char *transceiver;
+	int txfifosz, rxfifosz;
 
 	data = devm_kzalloc(dev, sizeof(*data), GFP_KERNEL);
 	if (!data)
@@ -308,7 +314,6 @@ static int ni16550_probe(struct platform_device *pdev)
 	uart.port.irqflags	= IRQF_SHARED;
 	uart.port.flags		|= UPF_SHARE_IRQ | UPF_BOOT_AUTOCONF
 					| UPF_FIXED_PORT | UPF_FIXED_TYPE;
-	uart.port.type		= info->port_type;
 	uart.port.ops		= &ni16550_uart_ops;
 
 	/*
@@ -339,6 +344,22 @@ static int ni16550_probe(struct platform_device *pdev)
 	 */
 	if (!device_property_read_string(dev, "transceiver", &transceiver))
 		rs232_property = strncmp(transceiver, "RS-232", 6) == 0;
+
+	/*
+	 * Hardware instantiation of FIFO sizes are held in registers.
+	 */
+	txfifosz = serial_in(&uart, NI16550_TFS_OFFSET);
+	rxfifosz = serial_in(&uart, NI16550_RFS_OFFSET);
+
+	if (txfifosz == 128 && rxfifosz == 128)
+		uart.port.type = PORT_NI16550_F128;
+	else if (txfifosz == 16 && rxfifosz == 16)
+		uart.port.type = PORT_NI16550_F16;
+	else {
+		dev_err(dev, "unknown tx/rx fifo sizes (%d, %d)\n",
+			txfifosz, rxfifosz);
+		return -ENODEV;
+	}
 
 	/*
 	 * NI UARTs may be connected to RS-485 or RS-232 transceivers,
@@ -384,21 +405,10 @@ static int ni16550_remove(struct platform_device *pdev)
 	return 0;
 }
 
-/* NI 16550 (with 16-byte FIFOs) */
-static const struct ni16550_device_info ni16550_fifo16 = {
-	.port_type = PORT_NI16550_F16,
-};
-
-/* NI 16550 (with 128-byte FIFOs) */
-static const struct ni16550_device_info ni16550_fifo128 = {
-	.port_type = PORT_NI16550_F128,
-};
+static const struct ni16550_device_info ni16550_default = { };
 
 static const struct of_device_id ni16550_of_match[] = {
-	{ .compatible = "ni,ni16550-fifo16",
-		.data = &ni16550_fifo16, },
-	{ .compatible = "ni,ni16550-fifo128",
-		.data = &ni16550_fifo128, },
+	{ .compatible = "ni,ni16550", .data = &ni16550_default },
 	{ },
 };
 MODULE_DEVICE_TABLE(of, ni16550_of_match);
@@ -406,13 +416,11 @@ MODULE_DEVICE_TABLE(of, ni16550_of_match);
 /* NI 16550 RS-485 Interface */
 static const struct ni16550_device_info nic7750 = {
 	.uartclk = 33333333,
-	.port_type = PORT_NI16550_F128,
 };
 
 /* NI CVS-145x RS-485 Interface */
 static const struct ni16550_device_info nic7772 = {
 	.uartclk = 1843200,
-	.port_type = PORT_NI16550_F16,
 	.flags = NI_CAP_PMR,
 };
 
@@ -421,7 +429,6 @@ static const struct ni16550_device_info nic792b = {
 	/* Sets UART clock rate to 22.222 MHz with 1.125 prescale */
 	.uartclk = 25000000,
 	.prescaler = NI16550_CPR_PRESCALE_1x125,
-	.port_type = PORT_NI16550_F128,
 };
 
 /* NI sbRIO 96x8 RS-232/485 Interfaces */
@@ -429,7 +436,6 @@ static const struct ni16550_device_info nic7a69 = {
 	/* Set UART clock rate to 29.629 MHz with 1.125 prescale */
 	.uartclk = 29629629,
 	.prescaler = NI16550_CPR_PRESCALE_1x125,
-	.port_type = PORT_NI16550_F128,
 };
 
 static const struct acpi_device_id ni16550_acpi_match[] = {

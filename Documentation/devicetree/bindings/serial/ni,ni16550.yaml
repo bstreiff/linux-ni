@@ -16,8 +16,7 @@ properties:
   compatible:
     items:
       - enum:
-          - ni,ni16550-fifo16
-          - ni,ni16550-fifo128
+          - ni,ni16550
 
   reg:
     maxItems: 1
@@ -45,7 +44,7 @@ unevaluatedProperties: false
 examples:
   - |
       serial@80000000 {
-        compatible = "ni16550-fifo128", "ns16550a";
+        compatible = "ni,ni16550", "ns16550a";
         reg = <0x80000000 0x8>;
         interrupts = <0 30 4>;
         clock-frequency = <58824000>;
