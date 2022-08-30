@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  *  NI 16550 Transceiver Driver
  *
@@ -5,17 +6,7 @@
  *  circuitry. This driver provides the transceiver control functionality
  *  for the RS-485 ports and uses the 8250 driver for the UART functionality.
  *
- *  Copyright 2012 National Instruments Corporation
- *
- *  This program is free software; you can redistribute it and/or modify it
- *  under the terms of the GNU General Public License as published by the Free
- *  Software Foundation; either version 2 of the License, or (at your option)
- *  any later version.
- *
- *  This program is distributed in the hope that it will be useful, but WITHOUT
- *  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- *  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- *  more details.
+ *  Copyright 2012-2022 National Instruments Corporation
  */
 
 #include <linux/acpi.h>
@@ -89,14 +80,10 @@ static int ni16550_enable_transceivers(struct uart_port *port)
 {
 	uint8_t pcr;
 
-	dev_dbg(port->dev, ">ni16550_enable_transceivers\n");
-
 	pcr = port->serial_in(port, NI16550_PCR_OFFSET);
 	pcr |= NI16550_PCR_TXVR_ENABLE_BIT;
-	dev_dbg(port->dev, "write pcr: 0x%08x\n", pcr);
+	dev_dbg(port->dev, "enable transceivers: write pcr: 0x%08x\n", pcr);
 	port->serial_out(port, NI16550_PCR_OFFSET, pcr);
-
-	dev_dbg(port->dev, "<ni16550_enable_transceivers\n");
 
 	return 0;
 }
@@ -105,14 +92,10 @@ static int ni16550_disable_transceivers(struct uart_port *port)
 {
 	uint8_t pcr;
 
-	dev_dbg(port->dev, ">ni16550_disable_transceivers\n");
-
 	pcr = port->serial_in(port, NI16550_PCR_OFFSET);
 	pcr &= ~NI16550_PCR_TXVR_ENABLE_BIT;
-	dev_dbg(port->dev, "write pcr: 0x%08x\n", pcr);
+	dev_dbg(port->dev, "disable transceivers: write pcr: 0x%08x\n", pcr);
 	port->serial_out(port, NI16550_PCR_OFFSET, pcr);
-
-	dev_dbg(port->dev, "<ni16550_disable_transceivers\n");
 
 	return 0;
 }
@@ -121,8 +104,6 @@ static int ni16550_config_rs485(struct uart_port *port,
 		struct serial_rs485 *rs485)
 {
 	uint8_t pcr;
-
-	dev_dbg(port->dev, ">ni16550_config_rs485\n");
 
 	/* "rs485" should be given to us non-NULL. */
 	BUG_ON(rs485 == NULL);
@@ -161,13 +142,12 @@ static int ni16550_config_rs485(struct uart_port *port,
 		pcr |= NI16550_PCR_RS422;
 	}
 
-	dev_dbg(port->dev, "write pcr: 0x%08x\n", pcr);
+	dev_dbg(port->dev, "config rs485: write pcr: 0x%08x\n", pcr);
 	port->serial_out(port, NI16550_PCR_OFFSET, pcr);
 
 	/* Update the cache. */
 	port->rs485 = *rs485;
 
-	dev_dbg(port->dev, "<ni16550_config_rs485\n");
 	return 0;
 }
 
@@ -175,20 +155,23 @@ static bool is_rs232_mode(struct uart_8250_port *up)
 {
 	uint8_t pmr = serial_in(up, NI16550_PMR_OFFSET);
 
-	/* If the PMR is not implemented, then by default NI UARTs are
+	/*
+	 * If the PMR is not implemented, then by default NI UARTs are
 	 * connected to RS-485 transceivers
 	 */
 	if ((pmr & NI16550_PMR_CAP_MASK) == NI16550_PMR_NOT_IMPL)
 		return false;
 
 	if ((pmr & NI16550_PMR_CAP_MASK) == NI16550_PMR_CAP_DUAL)
-		/* If the port is dual-mode capable, then read the mode bit
+		/*
+		 * If the port is dual-mode capable, then read the mode bit
 		 * to know the current mode
 		 */
 		return ((pmr & NI16550_PMR_MODE_MASK)
 					== NI16550_PMR_MODE_RS232);
 	else
-		/* If it is not dual-mode capable, then decide based on the
+		/*
+		 * If it is not dual-mode capable, then decide based on the
 		 * capability
 		 */
 		return ((pmr & NI16550_PMR_CAP_MASK) == NI16550_PMR_CAP_RS232);
@@ -197,7 +180,8 @@ static bool is_rs232_mode(struct uart_8250_port *up)
 static void ni16550_config_prescaler(struct uart_8250_port *up,
 				     uint8_t prescaler)
 {
-	/* Page in the Enhanced Mode Registers
+	/*
+	 * Page in the Enhanced Mode Registers
 	 * Sets EFR[4] for Enhanced Mode.
 	 */
 	uint8_t lcr_value;
@@ -222,7 +206,8 @@ static void ni16550_config_prescaler(struct uart_8250_port *up,
 static void ni16550_port_setup(struct uart_port *port)
 {
 	port->rs485_config = &ni16550_config_rs485;
-	/* The hardware comes up by default in 2-wire auto mode and we
+	/*
+	 * The hardware comes up by default in 2-wire auto mode and we
 	 * set the flags to represent that
 	 */
 	port->rs485.flags = SER_RS485_ENABLED | SER_RS485_RTS_ON_SEND;
@@ -255,17 +240,48 @@ static const struct uart_ops ni16550_uart_ops = {
 	.shutdown	= ni16550_port_shutdown,
 };
 
+static int ni16550_get_regs(struct platform_device *pdev,
+			    struct uart_port *port)
+{
+	struct resource *regs;
+
+	regs = platform_get_resource(pdev, IORESOURCE_IO, 0);
+	if (regs) {
+		port->iotype = UPIO_PORT;
+		port->iobase = regs->start;
+
+		return 0;
+	}
+
+	regs = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	if (regs) {
+		port->iotype  = UPIO_MEM;
+		port->mapbase = regs->start;
+		port->mapsize = resource_size(regs);
+		port->flags   |= UPF_IOREMAP;
+
+		port->membase = devm_ioremap(&pdev->dev, port->mapbase,
+					     port->mapsize);
+		if (!port->membase)
+			return -ENOMEM;
+
+		return 0;
+	}
+
+	dev_err(&pdev->dev, "no registers defined\n");
+	return -EINVAL;
+}
+
 static int ni16550_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct uart_8250_port uart = {};
 	struct ni16550_data *data;
 	const struct ni16550_device_info *info;
-	struct resource *regs;
 	int ret = 0;
 	int irq;
 	int rs232_property = 0;
-	unsigned prescaler;
+	unsigned int prescaler;
 	const char *transceiver;
 
 	data = devm_kzalloc(dev, sizeof(*data), GFP_KERNEL);
@@ -278,23 +294,9 @@ static int ni16550_probe(struct platform_device *pdev)
 	if (irq < 0)
 		return irq;
 
-	if ((regs = platform_get_resource(pdev, IORESOURCE_IO, 0))) {
-		uart.port.iotype = UPIO_PORT;
-		uart.port.iobase = regs->start;
-	} else if ((regs = platform_get_resource(pdev, IORESOURCE_MEM, 0))) {
-		uart.port.iotype  = UPIO_MEM;
-		uart.port.mapbase = regs->start;
-		uart.port.mapsize = resource_size(regs);
-		uart.port.flags   |= UPF_IOREMAP;
-
-		uart.port.membase = devm_ioremap(dev, uart.port.mapbase,
-						 uart.port.mapsize);
-		if (!uart.port.membase)
-			return -ENOMEM;
-	} else {
-		dev_err(dev, "no registers defined\n");
-		return -EINVAL;
-	}
+	ret = ni16550_get_regs(pdev, &uart.port);
+	if (ret < 0)
+		return ret;
 
 	/* early setup so that serial_in()/serial_out() work */
 	serial8250_set_defaults(&uart);
@@ -335,9 +337,8 @@ static int ni16550_probe(struct platform_device *pdev)
 	 * Similarly, "transceiver" might not be present. If it is not present,
 	 * then this is probably RS-485 (unless PMR is implemented).
 	 */
-	if (!device_property_read_string(dev, "transceiver", &transceiver)) {
+	if (!device_property_read_string(dev, "transceiver", &transceiver))
 		rs232_property = strncmp(transceiver, "RS-232", 6) == 0;
-	}
 
 	/*
 	 * NI UARTs may be connected to RS-485 or RS-232 transceivers,
