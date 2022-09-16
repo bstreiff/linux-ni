@@ -278,7 +278,6 @@
 #define PORT_LINFLEXUART	122
 
 /* National Instruments 16550 UART */
-#define PORT_NI16550_F16	123 /* 16-byte FIFOs */
-#define PORT_NI16550_F128	124 /* 128-byte FIFOs */
+#define PORT_NI16550	124
 
 #endif /* _UAPILINUX_SERIAL_CORE_H */
