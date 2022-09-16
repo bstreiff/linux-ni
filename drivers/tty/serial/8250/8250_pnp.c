@@ -26,12 +26,11 @@
 #define UNKNOWN_DEV 0x3000
 #define CIR_PORT	0x0800
 
-#define NI_CLK_33333333	0x0002
-
+#define NI_PORT_ID "NIC7750"
+#define NI_PORT_CLK 33333333
 static bool is_niport(struct pnp_dev *dev)
 {
-	/* All National Instruments ACPI IDs start with NIC */
-	if (strncmp(dev->id->id, "NIC", 3) == 0)
+	if (strncmp(dev->id->id, NI_PORT_ID, sizeof(NI_PORT_ID)) == 0)
 		return true;
 	else
 		return false;
@@ -208,10 +207,10 @@ static const struct pnp_device_id pnp_dev_table[] = {
 	/* Com 1 */
 	/*  Deskline K56 Phone System PnP */
 	{	"MVX00A1",		0	},
+	/* National Instruments (NI) 16550 PNP */
+	{	NI_PORT_ID,		0	},
 	/* PC Rider K56 Phone System PnP */
 	{	"MVX00F2",		0	},
-	/* National Instruments (NI) 16550 PNP */
-	{	"NIC7750",	NI_CLK_33333333	},
 	/* NEC 98NOTE SPEAKER PHONE FAX MODEM(33600bps) */
 	{	"nEC8241",		0	},
 	/* Pace 56 Voice Internal Plug & Play Modem */
@@ -496,9 +495,7 @@ serial_pnp_probe(struct pnp_dev *dev, const struct pnp_device_id *dev_id)
 
 #ifdef CONFIG_SERIAL_8250_NI16550
 	if (is_niport(dev)) {
-		if (flags & NI_CLK_33333333)
-			uart.port.uartclk = 33333333;
-
+		uart.port.uartclk = NI_PORT_CLK;
 		uart.port.flags |= UPF_FIXED_PORT | UPF_FIXED_TYPE;
 		uart.port.type = PORT_NI16550;
 		ni16550_port_setup(&uart.port);
