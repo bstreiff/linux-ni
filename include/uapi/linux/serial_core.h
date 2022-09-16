@@ -280,4 +280,8 @@
 /* Sunplus UART */
 #define PORT_SUNPLUS	123
 
+/* National Instruments (NI) UARTs */
+#define PORT_NI16550_F16	124
+#define PORT_NI16550_F128	125
+
 #endif /* _UAPILINUX_SERIAL_CORE_H */
