@@ -24,16 +24,6 @@
 /* RFS - RX FIFO Size */
 #define NI16550_RFS_OFFSET	0x0D
 
-/* PCR - Port Control Register */
-#define NI16550_PCR_OFFSET	0x0F
-#define NI16550_PCR_RS422			0x00
-#define NI16550_PCR_ECHO_RS485			0x01
-#define NI16550_PCR_DTR_RS485			0x02
-#define NI16550_PCR_AUTO_RS485			0x03
-#define NI16550_PCR_WIRE_MODE_MASK		0x03
-#define NI16550_PCR_TXVR_ENABLE_BIT		(1 << 3)
-#define NI16550_PCR_RS485_TERMINATION_BIT	(1 << 6)
-
 /* PMR - Port Mode Register */
 #define NI16550_PMR_OFFSET	0x0E
 /* PMR[1:0] - Port Capabilities */
@@ -47,8 +37,18 @@
 #define NI16550_PMR_MODE_RS232			0x00 /* currently 232 */
 #define NI16550_PMR_MODE_RS485			0x10 /* currently 485 */
 
+/* PCR - Port Control Register */
+#define NI16550_PCR_OFFSET	0x0F
+#define NI16550_PCR_RS422			0x00
+#define NI16550_PCR_ECHO_RS485			0x01
+#define NI16550_PCR_DTR_RS485			0x02
+#define NI16550_PCR_AUTO_RS485			0x03
+#define NI16550_PCR_WIRE_MODE_MASK		0x03
+#define NI16550_PCR_TXVR_ENABLE_BIT		(1 << 3)
+#define NI16550_PCR_RS485_TERMINATION_BIT	(1 << 6)
+
 /* flags for ni16550_device_info */
-#define NI_CAP_PMR		0x0001
+#define NI_HAS_PMR		0x0001
 
 struct ni16550_device_info {
 	unsigned int uartclk;
@@ -187,7 +187,7 @@ static void ni16550_config_prescaler(struct uart_8250_port *up,
 	serial_out(up, UART_ICR, prescaler);
 }
 
-static void ni16550_port_setup(struct uart_port *port)
+static void ni16550_rs485_setup(struct uart_port *port)
 {
 	port->rs485_config = &ni16550_config_rs485;
 	/*
@@ -347,7 +347,7 @@ static int ni16550_probe(struct platform_device *pdev)
 	 * the port is in RS-232 mode, register as a standard 8250 port
 	 * and print about it.
 	 */
-	if ((info->flags & NI_CAP_PMR) && is_rs232_mode(&uart)) {
+	if ((info->flags & NI_HAS_PMR) && is_rs232_mode(&uart)) {
 		if (uart.port.iotype == UPIO_PORT)
 			pr_info("NI 16550 at I/O 0x%x (irq = %d) is dual-mode capable and is in RS-232 mode\n",
 				(unsigned int)uart.port.iobase,
@@ -362,7 +362,7 @@ static int ni16550_probe(struct platform_device *pdev)
 		 * or it's not implemented and the 'transceiver' ACPI
 		 * property is 'RS-485';
 		 */
-		ni16550_port_setup(&uart.port);
+		ni16550_rs485_setup(&uart.port);
 	}
 
 	ret = serial8250_register_8250_port(&uart);
@@ -400,7 +400,7 @@ static const struct ni16550_device_info nic7750 = {
 /* NI CVS-145x RS-485 Interface */
 static const struct ni16550_device_info nic7772 = {
 	.uartclk = 1843200,
-	.flags = NI_CAP_PMR,
+	.flags = NI_HAS_PMR,
 };
 
 /* NI cRIO-904x RS-485 Interface */
