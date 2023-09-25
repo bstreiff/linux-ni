@@ -1031,6 +1031,7 @@ dtb-$(CONFIG_ARCH_ZYNQ) += \
 	ni-7885.dtb \
 	ni-793C.dtb \
 	ni-bluefin.dtb \
+	ni-coralreef.dtb \
 	ni-fielddaq.dtb
 dtb-$(CONFIG_MACH_ARMADA_370) += \
 	armada-370-db.dtb \
