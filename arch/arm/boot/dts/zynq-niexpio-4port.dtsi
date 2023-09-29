@@ -1,0 +1,87 @@
+// SPDX-License-Identifier: GPL-2.0 OR MIT
+/*
+ * Copyright (C) 2016 - 2023 National Instruments
+ */
+
+/include/ "zynq-niexpio-common.dtsi"
+
+&gem0 {
+	#address-cells = <1>;
+	#size-cells = <0>;
+	phy-mode = "rgmii-id";
+
+	fixed-link {
+		speed = <1000>;
+		full-duplex;
+	};
+
+	/*
+	 * Four-port Ethernet switch connected to the CPU's Ethernet controller.
+	 */
+	switch@0 {
+		compatible = "marvell,mv88e6085";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		reg = <0>;
+
+		dsa,member = <0 0>;
+
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			port@0 {
+				reg = <0>;
+				label = "cpu";
+				ethernet = <&gem0>;
+
+				fixed-link {
+					speed = <1000>;
+					full-duplex;
+				};
+			};
+
+			port@1 {
+				reg = <1>;
+				label = "sw0";
+				phy-handle = <&switch0phy0>;
+			};
+
+			port@2 {
+				reg = <2>;
+				label = "sw1";
+				phy-handle = <&switch0phy1>;
+			};
+
+			port@3 {
+				reg = <3>;
+				label = "sw2";
+				phy-handle = <&switch0phy2>;
+			};
+
+			port@4 {
+				reg = <4>;
+				label = "sw3";
+				phy-handle = <&switch0phy3>;
+			};
+		};
+
+		mdio {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			switch0phy0: switch0phy0@11 {
+				reg = <0x11>;
+			};
+			switch0phy1: switch0phy1@12 {
+				reg = <0x12>;
+			};
+			switch0phy2: switch0phy2@13 {
+				reg = <0x13>;
+			};
+			switch0phy3: switch0phy3@14 {
+				reg = <0x14>;
+			};
+		};
+	};
+};
