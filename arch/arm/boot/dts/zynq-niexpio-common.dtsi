@@ -1,0 +1,79 @@
+// SPDX-License-Identifier: GPL-2.0 OR MIT
+/*
+ * Copyright (C) 2016 - 2023 National Instruments
+ */
+
+/include/ "zynq-7000.dtsi"
+
+/ {
+	model = "NI Expansion I/O Target";
+	compatible = "ni,zynq-expio", "xlnx,zynq-7000";
+
+	/* Populated by the bootloader */
+	memory@0 {
+		device_type = "memory";
+		reg = <0 0>;
+	};
+	chosen { };
+
+	usb_phy0: phy0 {
+		compatible = "usb-nop-xceiv";
+		#phy-cells = <0>;
+	};
+
+	usb_phy1: phy1 {
+		compatible = "usb-nop-xceiv";
+		#phy-cells = <0>;
+	};
+};
+
+&L2 {
+	prefetch-data = <1>;
+	prefetch-instr = <1>;
+	arm,dynamic-clock-gating = <0>;
+	arm,standby-mode = <0>;
+};
+
+&nfc0 {
+	status = "okay";
+
+	nand@0 {
+		reg = <0>;
+		nand-bus-width = <8>;
+		nand-is-boot-medium;
+
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			partition@0 {
+				label = "fsbl";
+				reg = <0x0 0x20000>;
+			};
+
+			partition@20000 {
+				label = "u-boot";
+				reg = <0x20000 0xa0000>;
+			};
+
+			partition@a0000 {
+				label = "boot-config";
+				reg = <0xa0000 0x24a0000>;
+			};
+
+			partition@24a0000 {
+				label = "root";
+				reg = <0x24a0000 0xff80000>;
+			};
+		};
+	};
+};
+
+&usb0 {
+	usb-phy = <&usb_phy0>;
+};
+
+&usb1 {
+	usb-phy = <&usb_phy1>;
+};
