@@ -1,0 +1,164 @@
+// SPDX-License-Identifier: GPL-2.0 OR MIT
+/*
+ * Copyright (C) 2016 - 2023 National Instruments
+ */
+
+/dts-v1/;
+#include <dt-bindings/input/input.h>
+#include <dt-bindings/gpio/gpio.h>
+#include "zynq-niexpio-2port.dtsi"
+
+/ {
+	model = "NI FieldDAQ";
+	compatible = "ni,fielddaq", "xlnx,zynq-7000";
+
+	/*
+	 * This 100MHz reference clock is actually the output of a Si514;
+	 * However, we do not declare it as compatible with silabs,si514
+	 * in the device tree because it is steered by userspace, and
+	 * therefore we don't want clk-si514.c to attach to it.
+	 */
+	ref100: oscillator {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <100000000>;
+	};
+
+	leds {
+		compatible = "gpio-leds";
+
+		/* "LED_USER_RED" is on GPIO1 */
+		led-0 {
+			label = "nilrt:status:red";
+			gpios = <&gpio0 1 GPIO_ACTIVE_HIGH>;
+			default-state = "on";
+		};
+
+		/* "LED_USER_GREEN" is on GPIO15 */
+		led-1 {
+			label = "nilrt:status:green";
+			gpios = <&gpio0 15 GPIO_ACTIVE_HIGH>;
+			default-state = "on";
+		};
+
+		/* "ZYNQ_LED0_P1" is on GPIO47 */
+		led-2 {
+			label = "nilrt:port1:green";
+			gpios = <&gpio0 47 GPIO_ACTIVE_HIGH>;
+			linux,default-trigger = "dsa-0:00:01:link";
+		};
+
+		/* "ZYNQ_LED0_P2" is on GPIO46 */
+		led-3 {
+			label = "nilrt:port2:green";
+			gpios = <&gpio0 46 GPIO_ACTIVE_HIGH>;
+			linux,default-trigger = "dsa-0:00:02:link";
+		};
+	};
+
+	gpio_keys {
+		compatible = "gpio-keys";
+
+		/* Reset switch is on GPIO48 */
+		button-0 {
+			label = "reset_sw";
+			gpios = <&gpio0 48 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_RESTART>;
+		};
+	};
+
+	gpio_restart {
+		compatible = "gpio-restart";
+
+		/* ~PS_FORCE_RESET is on GPIO44 */
+		gpios = <&gpio0 44 GPIO_ACTIVE_LOW>;
+		priority = <200>;
+	};
+};
+
+&i2c0 {
+	status = "okay";
+
+	tmp451@4c {
+		compatible = "ti,tmp451";
+		reg = <0x4c>;
+		vcc-supply = <&regulator_vccpint>;
+	};
+
+	si5351c: clock-generator@60 {
+		compatible = "silabs,si5351c";
+		reg = <0x60>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		#clock-cells = <1>;
+
+		clocks = <&ref100>;
+		clock-names = "clkin";
+
+		silabs,pll-source = <0 1>, <1 0>;
+		silabs,pll-frequency = <0 737280000>;
+
+		umber-btsi0@0 {
+			reg = <0>;
+			silabs,drive-strength = <8>;
+			silabs,multisynth-source = <0>;
+			silabs,clock-source = <0>;
+			silabs,disable-state = <0>;
+			clock-frequency = <12800000>;
+		};
+
+		umber-sysclk@1 {
+			reg = <1>;
+			silabs,drive-strength = <8>;
+			silabs,multisynth-source = <0>;
+			silabs,clock-source = <0>;
+			silabs,disable-state = <0>;
+			clock-frequency = <80000000>;
+		};
+
+		umber-btsi1@2 {
+			reg = <2>;
+			silabs,drive-strength = <8>;
+			silabs,multisynth-source = <0>;
+			silabs,clock-source = <0>;
+			silabs,disable-state = <0>;
+			clock-frequency = <13107200>;
+		};
+
+		umber-btsi3@4 {
+			reg = <4>;
+			silabs,drive-strength = <8>;
+			silabs,multisynth-source = <0>;
+			silabs,clock-source = <0>;
+			silabs,disable-state = <0>;
+			clock-frequency = <10240000>;
+		};
+
+		umber-btsi4@7 {
+			reg = <7>;
+			silabs,drive-strength = <8>;
+			silabs,multisynth-source = <0>;
+			silabs,clock-source = <0>;
+			silabs,disable-state = <0>;
+			clock-frequency = <12288000>;
+		};
+	};
+};
+
+&gem0 {
+	status = "okay";
+};
+
+&uart1 {
+	status = "okay";
+};
+
+&usb0 {
+	status = "okay";
+	dr_mode = "host";
+};
+
+&watchdog0 {
+	status = "okay";
+	reset-on-timeout;
+};
