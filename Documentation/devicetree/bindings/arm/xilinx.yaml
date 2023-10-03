@@ -132,6 +132,14 @@ properties:
           - const: xlnx,zynqmp-smk-k26
           - const: xlnx,zynqmp
 
+      - description: NI Expansion I/O Devices
+        items:
+          - enum:
+              - ni,bluefin
+              - ni,coralreef
+              - ni,fielddaq
+          - const: xlnx,zynq-7000
+
 additionalProperties: true
 
 ...
