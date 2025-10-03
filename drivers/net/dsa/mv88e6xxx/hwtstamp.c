@@ -285,7 +285,27 @@ static void mv88e6xxx_get_rxts(struct mv88e6xxx_chip *chip,
 		mv88e6xxx_reg_unlock(chip);
 		if (err)
 			pr_err("failed to clear the receive status\n");
+
+		/* If the overwritten or discard bits have been set, then we're receiving
+		 * timestampable packets faster than we can retrieve their timestamps and
+		 * we have dropped some.
+		 *
+		 * The one that we did retrieve should be still considered valid, so mask
+		 * off the signal bits.
+		 */
+		if ((status & MV88E6XXX_PTP_TS_STATUS_MASK) == MV88E6XXX_PTP_TS_STATUS_OVERWITTEN) {
+			dev_dbg(chip->dev, "p%d arr%d ts status overwritten; some timestamps have been lost\n",
+				 ps->port_id,
+				 (reg == chip->info->ops->ptp_ops->arr0_sts_reg) ? 0 : 1);
+			status &= ~MV88E6XXX_PTP_TS_STATUS_OVERWITTEN;
+		} else if ((status & MV88E6XXX_PTP_TS_STATUS_MASK) == MV88E6XXX_PTP_TS_STATUS_DISCARDED) {
+			dev_dbg(chip->dev, "p%d arr%d ts status discarded; some timestamps have been lost\n",
+				 ps->port_id,
+				 (reg == chip->info->ops->ptp_ops->arr0_sts_reg) ? 0 : 1);
+			status &= ~MV88E6XXX_PTP_TS_STATUS_DISCARDED;
+		}
 	}
+
 	/* Since the device can only handle one time stamp at a time,
 	 * we purge any extra frames from the queue.
 	 */
