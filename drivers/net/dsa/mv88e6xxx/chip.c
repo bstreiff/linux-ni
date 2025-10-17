@@ -2515,6 +2515,65 @@ static int mv88e6xxx_port_broadcast_sync(struct mv88e6xxx_chip *chip, int port,
 				  &ctx);
 }
 
+/* The rsvd2cpu function can trap frames with destination addresses of
+ * 01:80:c2:00:00:0x and 01:80:c2:00:00:2x as management, but there are
+ * other such frames that need to be trapped to the CPU, such as destination
+ * addresses associated with 1588, that are not in those ranges.
+ */
+
+static const u8 mv88e6xxx_extra_mgmt_da[][ETH_ALEN] = {
+	/* PTP over Ethernet multicast address */
+	{ 0x01, 0x1b, 0x19, 0x00, 0x00, 0x00 },
+	/* Multicast IPv4 224.0.1.129 */
+	{ 0x01, 0x00, 0x5e, 0x00, 0x01, 0x81 },
+	/* Multicast IPv4 224.0.0.107 */
+	{ 0x01, 0x00, 0x5e, 0x00, 0x00, 0x6b },
+	/* Multicast IPv6 ff0e::181 */
+	{ 0x33, 0x33, 0x00, 0x00, 0x01, 0x81 },
+	/* Multicast IPv6 ff0e::6b */
+	{ 0x33, 0x33, 0x00, 0x00, 0x00, 0x6b },
+ };
+
+static int mv88e6xxx_port_add_extra_mgmt(struct mv88e6xxx_chip *chip, int port,
+					 u16 vid)
+{
+	u8 state = MV88E6XXX_G1_ATU_DATA_STATE_MC_STATIC_DA_MGMT;
+	int i, err;
+
+	for (i = 0; i < ARRAY_SIZE(mv88e6xxx_extra_mgmt_da); i++)
+	{
+		err = mv88e6xxx_port_db_load_purge(chip, port,
+						   mv88e6xxx_extra_mgmt_da[i],
+						   vid, state);
+		if (err)
+			return err;
+	}
+
+	return 0;
+}
+
+static int mv88e6xxx_extra_mgmt_setup(struct mv88e6xxx_chip *chip, u16 vid)
+{
+	int port;
+	int err;
+
+	for (port = 0; port < mv88e6xxx_num_ports(chip); port++) {
+		struct dsa_port *dp = dsa_to_port(chip->ds, port);
+
+		if (dsa_is_unused_port(chip->ds, port))
+			continue;
+
+		if (!dsa_is_cpu_port(chip->ds, port))
+			continue;
+
+		err = mv88e6xxx_port_add_extra_mgmt(chip, port, vid);
+		if (err)
+			return err;
+	}
+
+	return 0;
+}
+
 static int mv88e6xxx_port_vlan_join(struct mv88e6xxx_chip *chip, int port,
 				    u16 vid, u8 member, bool warn)
 {
@@ -2550,6 +2609,10 @@ static int mv88e6xxx_port_vlan_join(struct mv88e6xxx_chip *chip, int port,
 			return err;
 
 		err = mv88e6xxx_broadcast_setup(chip, vlan.vid);
+		if (err)
+			return err;
+
+		err = mv88e6xxx_extra_mgmt_setup(chip, vlan.vid);
 		if (err)
 			return err;
 	} else if (vlan.member[port] != member) {
@@ -3937,6 +4000,10 @@ static int mv88e6xxx_setup(struct dsa_switch *ds)
 		goto unlock;
 
 	err = mv88e6xxx_broadcast_setup(chip, 0);
+	if (err)
+		goto unlock;
+
+	err = mv88e6xxx_extra_mgmt_setup(chip, 0);
 	if (err)
 		goto unlock;
 
